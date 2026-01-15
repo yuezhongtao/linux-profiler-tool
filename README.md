@@ -2,6 +2,10 @@
 
 一个支持 MCP (Model Context Protocol) 协议远程调用的 Linux 性能分析工具。
 
+## 📄 开源许可
+
+本项目采用 [Apache License 2.0](LICENSE) 开源许可证。
+
 ### 功能特性
 
 - **CPU 分析**: 使用率、频率、负载均衡、各核心状态
@@ -37,12 +41,22 @@ linux-profiler-tool/
 # 克隆项目
 cd linux-profiler-tool
 
-# 安装依赖
+# 创建并激活虚拟环境
+python3 -m venv .venv
+source .venv/bin/activate  # Linux/macOS
+# 或 .venv\Scripts\activate  # Windows
+
+# 安装依赖（开发模式）
 pip install -e .
 
-# 或使用 uv
+# 或使用 uv（更快）
 uv pip install -e .
+
+# 验证安装
+linux-profiler --help
 ```
+
+> **注意**: 如果遇到 `ModuleNotFoundError: No module named 'linux_profiler'` 错误，请参考 [FIX_GUIDE.md](FIX_GUIDE.md) 进行修复。
 
 ### 使用方式
 
@@ -69,7 +83,7 @@ linux-profiler --http
 linux-profiler --http --stateless
 
 # 自定义端口
-linux-profiler --http --port 8080
+linux-profiler --http --port 22222
 ```
 
 **SSE 传输（传统模式）：**
@@ -117,7 +131,8 @@ linux-profiler --http --transport both
 {
   "mcpServers": {
     "linux-profiler": {
-      "url": "http://your-server:22222/mcp"
+      "url": "http://your-server:22222/mcp",
+      "transportType": "streamable-http"
     }
   }
 }
@@ -194,3 +209,25 @@ linux-profiler --http --transport both
 - starlette >= 0.27.0
 - uvicorn >= 0.24.0
 - pydantic >= 2.0.0
+
+---
+
+## 📜 License
+
+```
+Copyright 2026 Linux Profiler MCP Contributors
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+```
+
+See [LICENSE](LICENSE) for the full license text.

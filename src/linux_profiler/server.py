@@ -5,16 +5,17 @@ import asyncio
 import json
 import os
 import platform
+
 from datetime import datetime
 from typing import Any
 
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
 from mcp.server.sse import SseServerTransport
-from mcp.server.streamable_http import StreamableHTTPServerTransport
 from mcp.types import Tool, TextContent
 from starlette.applications import Starlette
-from starlette.routing import Route, Mount
+from starlette.middleware.cors import CORSMiddleware
+from starlette.routing import Route
 from starlette.responses import JSONResponse
 
 from .collectors import (
@@ -37,225 +38,226 @@ disk_collector = DiskCollector()
 network_collector = NetworkCollector()
 process_collector = ProcessCollector(top_n=10)
 
-# Create MCP server
-server = Server("linux-profiler")
 
+def create_mcp_server() -> Server:
+    """Create and configure MCP server instance."""
+    mcp_server = Server("linux-profiler")
 
-def get_system_info() -> dict[str, Any]:
-    """Get basic system information."""
-    return {
-        "hostname": platform.node(),
-        "system": platform.system(),
-        "release": platform.release(),
-        "version": platform.version(),
-        "machine": platform.machine(),
-        "processor": platform.processor(),
-        "python_version": platform.python_version(),
-        "timestamp": datetime.now().isoformat(),
-    }
+    def get_system_info() -> dict[str, Any]:
+        """Get basic system information."""
+        return {
+            "hostname": platform.node(),
+            "system": platform.system(),
+            "release": platform.release(),
+            "version": platform.version(),
+            "machine": platform.machine(),
+            "processor": platform.processor(),
+            "python_version": platform.python_version(),
+            "timestamp": datetime.now().isoformat(),
+        }
 
-
-@server.list_tools()
-async def list_tools() -> list[Tool]:
-    """List all available performance profiling tools."""
-    return [
-        Tool(
-            name="get_system_info",
-            description="Get basic system information including hostname, OS, kernel version, and architecture.",
-            inputSchema={
-                "type": "object",
-                "properties": {},
-                "required": [],
-            },
-        ),
-        Tool(
-            name="get_cpu_metrics",
-            description=cpu_collector.get_description(),
-            inputSchema={
-                "type": "object",
-                "properties": {},
-                "required": [],
-            },
-        ),
-        Tool(
-            name="get_memory_metrics",
-            description=memory_collector.get_description(),
-            inputSchema={
-                "type": "object",
-                "properties": {},
-                "required": [],
-            },
-        ),
-        Tool(
-            name="get_disk_metrics",
-            description=disk_collector.get_description(),
-            inputSchema={
-                "type": "object",
-                "properties": {},
-                "required": [],
-            },
-        ),
-        Tool(
-            name="get_network_metrics",
-            description=network_collector.get_description(),
-            inputSchema={
-                "type": "object",
-                "properties": {},
-                "required": [],
-            },
-        ),
-        Tool(
-            name="get_process_metrics",
-            description=process_collector.get_description(),
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "top_n": {
-                        "type": "integer",
-                        "description": "Number of top processes to return (default: 10)",
-                        "default": 10,
-                    },
+    @mcp_server.list_tools()
+    async def list_tools() -> list[Tool]:
+        """List all available performance profiling tools."""
+        return [
+            Tool(
+                name="get_system_info",
+                description="Get basic system information including hostname, OS, kernel version, and architecture.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {},
+                    "required": [],
                 },
-                "required": [],
-            },
-        ),
-        Tool(
-            name="get_all_metrics",
-            description="Get a comprehensive performance report including CPU, memory, disk, network, and process metrics.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "include_processes": {
-                        "type": "boolean",
-                        "description": "Whether to include process information (default: true)",
-                        "default": True,
-                    },
+            ),
+            Tool(
+                name="get_cpu_metrics",
+                description=cpu_collector.get_description(),
+                inputSchema={
+                    "type": "object",
+                    "properties": {},
+                    "required": [],
                 },
-                "required": [],
-            },
-        ),
-        Tool(
-            name="get_performance_summary",
-            description="Get a brief performance summary with key metrics and potential issues.",
-            inputSchema={
-                "type": "object",
-                "properties": {},
-                "required": [],
-            },
-        ),
-    ]
+            ),
+            Tool(
+                name="get_memory_metrics",
+                description=memory_collector.get_description(),
+                inputSchema={
+                    "type": "object",
+                    "properties": {},
+                    "required": [],
+                },
+            ),
+            Tool(
+                name="get_disk_metrics",
+                description=disk_collector.get_description(),
+                inputSchema={
+                    "type": "object",
+                    "properties": {},
+                    "required": [],
+                },
+            ),
+            Tool(
+                name="get_network_metrics",
+                description=network_collector.get_description(),
+                inputSchema={
+                    "type": "object",
+                    "properties": {},
+                    "required": [],
+                },
+            ),
+            Tool(
+                name="get_process_metrics",
+                description=process_collector.get_description(),
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "top_n": {
+                            "type": "integer",
+                            "description": "Number of top processes to return (default: 10)",
+                            "default": 10,
+                        },
+                    },
+                    "required": [],
+                },
+            ),
+            Tool(
+                name="get_all_metrics",
+                description="Get a comprehensive performance report including CPU, memory, disk, network, and process metrics.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "include_processes": {
+                            "type": "boolean",
+                            "description": "Whether to include process information (default: true)",
+                            "default": True,
+                        },
+                    },
+                    "required": [],
+                },
+            ),
+            Tool(
+                name="get_performance_summary",
+                description="Get a brief performance summary with key metrics and potential issues.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {},
+                    "required": [],
+                },
+            ),
+        ]
 
-
-@server.call_tool()
-async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
-    """Handle tool calls for performance profiling."""
-    try:
-        if name == "get_system_info":
-            result = get_system_info()
+    def generate_performance_summary() -> dict[str, Any]:
+        """Generate a performance summary with potential issues."""
+        cpu = cpu_collector.collect()
+        memory = memory_collector.collect()
+        disk = disk_collector.collect()
         
-        elif name == "get_cpu_metrics":
-            result = cpu_collector.collect()
+        issues = []
+        warnings = []
         
-        elif name == "get_memory_metrics":
-            result = memory_collector.collect()
+        # Check CPU
+        if cpu["overall_percent"] > 90:
+            issues.append(f"Critical: CPU usage is very high ({cpu['overall_percent']}%)")
+        elif cpu["overall_percent"] > 70:
+            warnings.append(f"Warning: CPU usage is elevated ({cpu['overall_percent']}%)")
         
-        elif name == "get_disk_metrics":
-            result = disk_collector.collect()
+        if cpu["load_average"]["1min"] > cpu["core_count_logical"] * 2:
+            issues.append(f"Critical: Load average ({cpu['load_average']['1min']}) is very high")
+        elif cpu["load_average"]["1min"] > cpu["core_count_logical"]:
+            warnings.append(f"Warning: Load average ({cpu['load_average']['1min']}) exceeds core count")
         
-        elif name == "get_network_metrics":
-            result = network_collector.collect()
+        # Check Memory
+        if memory["virtual"]["percent"] > 95:
+            issues.append(f"Critical: Memory usage is critical ({memory['virtual']['percent']}%)")
+        elif memory["virtual"]["percent"] > 80:
+            warnings.append(f"Warning: Memory usage is high ({memory['virtual']['percent']}%)")
         
-        elif name == "get_process_metrics":
-            top_n = arguments.get("top_n", 10)
-            collector = ProcessCollector(top_n=top_n)
-            result = collector.collect()
+        if memory["swap"]["percent"] > 50:
+            warnings.append(f"Warning: Swap usage is high ({memory['swap']['percent']}%)")
         
-        elif name == "get_all_metrics":
-            include_processes = arguments.get("include_processes", True)
-            result = {
-                "system": get_system_info(),
-                "cpu": cpu_collector.collect(),
-                "memory": memory_collector.collect(),
-                "disk": disk_collector.collect(),
-                "network": network_collector.collect(),
-            }
-            if include_processes:
-                result["processes"] = process_collector.collect()
+        # Check Disk
+        for partition in disk["partitions"]:
+            if partition["percent"] > 95:
+                issues.append(f"Critical: Disk {partition['mountpoint']} is almost full ({partition['percent']}%)")
+            elif partition["percent"] > 80:
+                warnings.append(f"Warning: Disk {partition['mountpoint']} usage is high ({partition['percent']}%)")
         
-        elif name == "get_performance_summary":
-            result = generate_performance_summary()
-        
+        # Determine overall status
+        if issues:
+            status = "critical"
+        elif warnings:
+            status = "warning"
         else:
-            return [TextContent(type="text", text=f"Unknown tool: {name}")]
+            status = "healthy"
+        
+        return {
+            "status": status,
+            "timestamp": datetime.now().isoformat(),
+            "summary": {
+                "cpu_percent": cpu["overall_percent"],
+                "load_average_1min": cpu["load_average"]["1min"],
+                "memory_percent": memory["virtual"]["percent"],
+                "swap_percent": memory["swap"]["percent"],
+            },
+            "issues": issues,
+            "warnings": warnings,
+        }
 
-        return [TextContent(type="text", text=json.dumps(result, indent=2, ensure_ascii=False))]
-    
-    except Exception as e:
-        return [TextContent(type="text", text=f"Error executing {name}: {str(e)}")]
+    @mcp_server.call_tool()
+    async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
+        """Handle tool calls for performance profiling."""
+        try:
+            if name == "get_system_info":
+                result = get_system_info()
+            
+            elif name == "get_cpu_metrics":
+                result = cpu_collector.collect()
+            
+            elif name == "get_memory_metrics":
+                result = memory_collector.collect()
+            
+            elif name == "get_disk_metrics":
+                result = disk_collector.collect()
+            
+            elif name == "get_network_metrics":
+                result = network_collector.collect()
+            
+            elif name == "get_process_metrics":
+                top_n = arguments.get("top_n", 10)
+                collector = ProcessCollector(top_n=top_n)
+                result = collector.collect()
+            
+            elif name == "get_all_metrics":
+                include_processes = arguments.get("include_processes", True)
+                result = {
+                    "system": get_system_info(),
+                    "cpu": cpu_collector.collect(),
+                    "memory": memory_collector.collect(),
+                    "disk": disk_collector.collect(),
+                    "network": network_collector.collect(),
+                }
+                if include_processes:
+                    result["processes"] = process_collector.collect()
+            
+            elif name == "get_performance_summary":
+                result = generate_performance_summary()
+            
+            else:
+                return [TextContent(type="text", text=f"Unknown tool: {name}")]
 
+            return [TextContent(type="text", text=json.dumps(result, indent=2, ensure_ascii=False))]
+        
+        except Exception as e:
+            return [TextContent(type="text", text=f"Error executing {name}: {str(e)}")]
 
-def generate_performance_summary() -> dict[str, Any]:
-    """Generate a performance summary with potential issues."""
-    cpu = cpu_collector.collect()
-    memory = memory_collector.collect()
-    disk = disk_collector.collect()
-    
-    issues = []
-    warnings = []
-    
-    # Check CPU
-    if cpu["overall_percent"] > 90:
-        issues.append(f"Critical: CPU usage is very high ({cpu['overall_percent']}%)")
-    elif cpu["overall_percent"] > 70:
-        warnings.append(f"Warning: CPU usage is elevated ({cpu['overall_percent']}%)")
-    
-    if cpu["load_average"]["1min"] > cpu["core_count_logical"] * 2:
-        issues.append(f"Critical: Load average ({cpu['load_average']['1min']}) is very high")
-    elif cpu["load_average"]["1min"] > cpu["core_count_logical"]:
-        warnings.append(f"Warning: Load average ({cpu['load_average']['1min']}) exceeds core count")
-    
-    # Check Memory
-    if memory["virtual"]["percent"] > 95:
-        issues.append(f"Critical: Memory usage is critical ({memory['virtual']['percent']}%)")
-    elif memory["virtual"]["percent"] > 80:
-        warnings.append(f"Warning: Memory usage is high ({memory['virtual']['percent']}%)")
-    
-    if memory["swap"]["percent"] > 50:
-        warnings.append(f"Warning: Swap usage is high ({memory['swap']['percent']}%)")
-    
-    # Check Disk
-    for partition in disk["partitions"]:
-        if partition["percent"] > 95:
-            issues.append(f"Critical: Disk {partition['mountpoint']} is almost full ({partition['percent']}%)")
-        elif partition["percent"] > 80:
-            warnings.append(f"Warning: Disk {partition['mountpoint']} usage is high ({partition['percent']}%)")
-    
-    # Determine overall status
-    if issues:
-        status = "critical"
-    elif warnings:
-        status = "warning"
-    else:
-        status = "healthy"
-    
-    return {
-        "status": status,
-        "timestamp": datetime.now().isoformat(),
-        "summary": {
-            "cpu_percent": cpu["overall_percent"],
-            "load_average_1min": cpu["load_average"]["1min"],
-            "memory_percent": memory["virtual"]["percent"],
-            "swap_percent": memory["swap"]["percent"],
-        },
-        "issues": issues,
-        "warnings": warnings,
-    }
+    return mcp_server
 
 
 # ============ STDIO Mode ============
 
 async def run_stdio_server():
     """Run the MCP server in STDIO mode."""
+    server = create_mcp_server()
     async with stdio_server() as (read_stream, write_stream):
         await server.run(
             read_stream,
@@ -268,6 +270,7 @@ async def run_stdio_server():
 
 def create_sse_app() -> Starlette:
     """Create Starlette app for SSE transport (legacy mode)."""
+    server = create_mcp_server()
     sse_transport = SseServerTransport("/messages/")
 
     async def handle_sse(request):
@@ -330,91 +333,25 @@ def create_streamable_http_app(stateless: bool = False) -> Starlette:
         stateless: If True, run in stateless mode (no session management).
                    If False, run in stateful mode with session support.
     """
-    # Session storage for stateful mode
-    session_transports: dict[str, StreamableHTTPServerTransport] = {}
-    session_lock = asyncio.Lock()
-
-    async def handle_mcp(request):
-        """Handle MCP requests via Streamable HTTP."""
-        if stateless:
-            # Stateless mode: create new transport for each request
-            transport = StreamableHTTPServerTransport(
-                mcp_session_id=None,
-                is_json_response_enabled=True,
-            )
-            async with transport.connect() as streams:
-                read_stream, write_stream = streams
-                # Run server in background task
-                async def run_server():
-                    await server.run(
-                        read_stream,
-                        write_stream,
-                        server.create_initialization_options(),
-                    )
-                task = asyncio.create_task(run_server())
-                try:
-                    response = await transport.handle_request(
-                        request.scope, request.receive, request._send
-                    )
-                    return response
-                finally:
-                    task.cancel()
-                    try:
-                        await task
-                    except asyncio.CancelledError:
-                        pass
-        else:
-            # Stateful mode: maintain sessions
-            session_id = request.headers.get("mcp-session-id")
-            
-            async with session_lock:
-                if session_id and session_id in session_transports:
-                    transport = session_transports[session_id]
-                else:
-                    # Create new session
-                    transport = StreamableHTTPServerTransport(
-                        mcp_session_id=None,
-                        is_json_response_enabled=True,
-                    )
-                    
-            # Handle the request
-            async with transport.connect() as streams:
-                read_stream, write_stream = streams
-                
-                async def run_server():
-                    await server.run(
-                        read_stream,
-                        write_stream,
-                        server.create_initialization_options(),
-                    )
-                
-                task = asyncio.create_task(run_server())
-                try:
-                    response = await transport.handle_request(
-                        request.scope, request.receive, request._send
-                    )
-                    
-                    # Store session if new
-                    if transport.mcp_session_id:
-                        async with session_lock:
-                            session_transports[transport.mcp_session_id] = transport
-                    
-                    return response
-                finally:
-                    task.cancel()
-                    try:
-                        await task
-                    except asyncio.CancelledError:
-                        pass
-
-    async def handle_mcp_delete(request):
-        """Handle session termination."""
-        session_id = request.headers.get("mcp-session-id")
-        if session_id:
-            async with session_lock:
-                if session_id in session_transports:
-                    del session_transports[session_id]
-        return JSONResponse({"status": "session terminated"})
+    from contextlib import asynccontextmanager
+    from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
+    from starlette.routing import Mount
+    
+    # Create MCP server instance
+    mcp_server = create_mcp_server()
+    
+    # Create session manager
+    session_manager = StreamableHTTPSessionManager(
+        app=mcp_server,
+        json_response=True,
+        stateless=stateless,
+    )
+    
+    @asynccontextmanager
+    async def lifespan(app: Starlette):
+        """Application lifespan - manage session manager lifecycle."""
+        async with session_manager.run():
+            yield
 
     async def health_check(request):
         """Health check endpoint."""
@@ -442,16 +379,27 @@ def create_streamable_http_app(stateless: bool = False) -> Starlette:
                 "json_response": True,
             },
         })
-
+    
     app = Starlette(
         debug=False,
+        lifespan=lifespan,
         routes=[
-            Route("/mcp", endpoint=handle_mcp, methods=["GET", "POST"]),
-            Route("/mcp", endpoint=handle_mcp_delete, methods=["DELETE"]),
+            Mount("/mcp", app=session_manager.handle_request),
             Route("/health", endpoint=health_check),
             Route("/", endpoint=server_info),
         ],
     )
+    
+    # Add CORS middleware
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=True,
+        allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
+        allow_headers=["*"],
+        expose_headers=["Mcp-Session-Id"],
+    )
+    
     return app
 
 
@@ -459,13 +407,32 @@ def create_streamable_http_app(stateless: bool = False) -> Starlette:
 
 def create_combined_http_app(stateless: bool = False) -> Starlette:
     """Create combined app supporting both SSE and Streamable HTTP transports."""
+    from contextlib import asynccontextmanager
+    from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
+    from starlette.routing import Mount
+    
     sse_transport = SseServerTransport("/sse/messages/")
-    session_transports: dict[str, StreamableHTTPServerTransport] = {}
-    session_lock = asyncio.Lock()
+    
+    # Create MCP server for Streamable HTTP
+    mcp_server = create_mcp_server()
+    
+    # Create session manager for Streamable HTTP
+    session_manager = StreamableHTTPSessionManager(
+        app=mcp_server,
+        json_response=True,
+        stateless=stateless,
+    )
+    
+    @asynccontextmanager
+    async def lifespan(app: Starlette):
+        """Application lifespan - manage session manager lifecycle."""
+        async with session_manager.run():
+            yield
 
     # SSE handlers
     async def handle_sse(request):
         """Handle SSE connection for MCP."""
+        server = create_mcp_server()
         async with sse_transport.connect_sse(
             request.scope, request.receive, request._send
         ) as streams:
@@ -480,83 +447,6 @@ def create_combined_http_app(stateless: bool = False) -> Starlette:
         await sse_transport.handle_post_message(
             request.scope, request.receive, request._send
         )
-
-    # Streamable HTTP handlers
-    async def handle_mcp(request):
-        """Handle MCP requests via Streamable HTTP."""
-        if stateless:
-            transport = StreamableHTTPServerTransport(
-                mcp_session_id=None,
-                is_json_response_enabled=True,
-            )
-            async with transport.connect() as streams:
-                read_stream, write_stream = streams
-                async def run_server():
-                    await server.run(
-                        read_stream,
-                        write_stream,
-                        server.create_initialization_options(),
-                    )
-                task = asyncio.create_task(run_server())
-                try:
-                    response = await transport.handle_request(
-                        request.scope, request.receive, request._send
-                    )
-                    return response
-                finally:
-                    task.cancel()
-                    try:
-                        await task
-                    except asyncio.CancelledError:
-                        pass
-        else:
-            session_id = request.headers.get("mcp-session-id")
-            
-            async with session_lock:
-                if session_id and session_id in session_transports:
-                    transport = session_transports[session_id]
-                else:
-                    transport = StreamableHTTPServerTransport(
-                        mcp_session_id=None,
-                        is_json_response_enabled=True,
-                    )
-                    
-            async with transport.connect() as streams:
-                read_stream, write_stream = streams
-                
-                async def run_server():
-                    await server.run(
-                        read_stream,
-                        write_stream,
-                        server.create_initialization_options(),
-                    )
-                
-                task = asyncio.create_task(run_server())
-                try:
-                    response = await transport.handle_request(
-                        request.scope, request.receive, request._send
-                    )
-                    
-                    if transport.mcp_session_id:
-                        async with session_lock:
-                            session_transports[transport.mcp_session_id] = transport
-                    
-                    return response
-                finally:
-                    task.cancel()
-                    try:
-                        await task
-                    except asyncio.CancelledError:
-                        pass
-
-    async def handle_mcp_delete(request):
-        """Handle session termination."""
-        session_id = request.headers.get("mcp-session-id")
-        if session_id:
-            async with session_lock:
-                if session_id in session_transports:
-                    del session_transports[session_id]
-        return JSONResponse({"status": "session terminated"})
 
     async def health_check(request):
         """Health check endpoint."""
@@ -584,21 +474,32 @@ def create_combined_http_app(stateless: bool = False) -> Starlette:
             },
             "health": "/health",
         })
-
+    
     app = Starlette(
         debug=False,
+        lifespan=lifespan,
         routes=[
             # SSE transport routes
             Route("/sse", endpoint=handle_sse),
             Route("/sse/messages/", endpoint=handle_sse_messages, methods=["POST"]),
-            # Streamable HTTP transport routes
-            Route("/mcp", endpoint=handle_mcp, methods=["GET", "POST"]),
-            Route("/mcp", endpoint=handle_mcp_delete, methods=["DELETE"]),
+            # Streamable HTTP transport routes (as ASGI mount)
+            Mount("/mcp", app=session_manager.handle_request),
             # Common routes
             Route("/health", endpoint=health_check),
             Route("/", endpoint=server_info),
         ],
     )
+    
+    # Add CORS middleware
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=True,
+        allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
+        allow_headers=["*"],
+        expose_headers=["Mcp-Session-Id"],
+    )
+    
     return app
 
 
