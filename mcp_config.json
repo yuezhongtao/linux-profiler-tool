@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "linux-profiler": {
+      "command": "python",
+      "args": ["-m", "linux_profiler.server"],
+      "cwd": "/path/to/linux-profiler-tool",
+      "env": {
+        "PYTHONPATH": "/path/to/linux-profiler-tool/src"
+      }
+    }
+  }
+}
