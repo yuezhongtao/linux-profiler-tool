@@ -46,20 +46,57 @@ uv pip install -e .
 
 ### 使用方式
 
-#### 1. 作为 MCP Server 运行
+#### 1. STDIO 模式（本地调用）
 
 ```bash
-# 直接运行
+# 直接运行（默认 STDIO 模式）
 python -m linux_profiler.server
 
 # 或使用安装后的命令
 linux-profiler
 ```
 
-#### 2. 配置 MCP 客户端
+#### 2. HTTP 模式（远程调用）
 
-将以下配置添加到你的 MCP 客户端配置文件中：
+支持两种 HTTP 传输协议：
 
+**Streamable HTTP（推荐，MCP 新标准）：**
+```bash
+# 启动 Streamable HTTP 服务（默认）
+linux-profiler --http
+
+# 无状态模式
+linux-profiler --http --stateless
+
+# 自定义端口
+linux-profiler --http --port 8080
+```
+
+**SSE 传输（传统模式）：**
+```bash
+# 使用 SSE 传输
+linux-profiler --http --transport sse
+```
+
+**同时支持两种传输：**
+```bash
+# 同时启用 SSE 和 Streamable HTTP
+linux-profiler --http --transport both
+```
+
+启动后可访问的端点：
+
+| 传输类型 | 端点 | 说明 |
+|---------|------|------|
+| Streamable HTTP | `/mcp` | MCP 主端点（GET/POST/DELETE） |
+| SSE | `/sse` | SSE 连接端点 |
+| SSE | `/sse/messages/` | SSE 消息端点（仅 both 模式） |
+| 通用 | `/health` | 健康检查 |
+| 通用 | `/` | 服务信息 |
+
+#### 3. 配置 MCP 客户端
+
+**STDIO 模式配置：**
 ```json
 {
   "mcpServers": {
@@ -70,6 +107,28 @@ linux-profiler
       "env": {
         "PYTHONPATH": "/path/to/linux-profiler-tool/src"
       }
+    }
+  }
+}
+```
+
+**Streamable HTTP 模式配置（推荐）：**
+```json
+{
+  "mcpServers": {
+    "linux-profiler": {
+      "url": "http://your-server:22222/mcp"
+    }
+  }
+}
+```
+
+**SSE 模式配置（传统）：**
+```json
+{
+  "mcpServers": {
+    "linux-profiler": {
+      "url": "http://your-server:22222/sse"
     }
   }
 }
@@ -109,9 +168,29 @@ linux-profiler
 }
 ```
 
+### 命令行参数
+
+| 参数 | 说明 |
+|------|------|
+| `--http` | 启用 HTTP 模式（默认为 STDIO 模式） |
+| `--port, -p` | HTTP 监听端口（默认: 22222） |
+| `--host, -H` | HTTP 监听地址（默认: 0.0.0.0） |
+| `--transport, -t` | 传输类型: `streamable`（默认）、`sse`、`both` |
+| `--stateless` | Streamable HTTP 无状态模式 |
+
+### 环境变量
+
+| 变量 | 说明 | 默认值 |
+|------|------|--------|
+| `PROFILER_PORT` | HTTP 默认端口 | 22222 |
+| `PROFILER_HOST` | HTTP 默认地址 | 0.0.0.0 |
+| `PROFILER_TRANSPORT` | 默认传输类型 | streamable |
+
 ### 依赖
 
 - Python >= 3.10
 - mcp >= 1.0.0
 - psutil >= 5.9.0
+- starlette >= 0.27.0
+- uvicorn >= 0.24.0
 - pydantic >= 2.0.0

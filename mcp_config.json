@@ -1,12 +1,18 @@
 {
   "mcpServers": {
-    "linux-profiler": {
+    "linux-profiler-stdio": {
       "command": "python",
       "args": ["-m", "linux_profiler.server"],
       "cwd": "/path/to/linux-profiler-tool",
       "env": {
         "PYTHONPATH": "/path/to/linux-profiler-tool/src"
       }
+    },
+    "linux-profiler-streamable": {
+      "url": "http://localhost:22222/mcp"
+    },
+    "linux-profiler-sse": {
+      "url": "http://localhost:22222/sse"
     }
   }
 }
