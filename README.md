@@ -1,6 +1,8 @@
-## Linux性能分析工具
+# Linux性能分析工具
 
 一个支持 MCP (Model Context Protocol) 协议远程调用的 Linux 性能分析工具。
+
+中文 | [English](README_EN.md)
 
 ## 📄 开源许可
 
