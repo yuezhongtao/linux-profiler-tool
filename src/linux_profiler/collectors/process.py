@@ -4,15 +4,7 @@ import psutil
 from typing import Any
 
 from .base import BaseCollector
-
-
-def bytes_to_human(bytes_val: int) -> str:
-    """Convert bytes to human-readable format."""
-    for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
-        if bytes_val < 1024:
-            return f"{bytes_val:.2f} {unit}"
-        bytes_val /= 1024
-    return f"{bytes_val:.2f} PB"
+from .utils import bytes_to_human
 
 
 class ProcessCollector(BaseCollector):
@@ -70,5 +62,67 @@ class ProcessCollector(BaseCollector):
             "top_memory_consumers": top_memory,
         }
 
+    def search_processes(self, keyword: str, case_sensitive: bool = False) -> dict[str, Any]:
+        """
+        Search for processes by name or command line keyword.
+        
+        Args:
+            keyword: Keyword to search for in process names
+            case_sensitive: Whether to perform case-sensitive search
+            
+        Returns:
+            Dictionary containing matched processes and search metadata
+        """
+        if not keyword:
+            return {
+                "success": False,
+                "error": "Keyword cannot be empty",
+                "matched_count": 0,
+                "processes": []
+            }
+        
+        search_keyword = keyword if case_sensitive else keyword.lower()
+        matched_processes = []
+        
+        for proc in psutil.process_iter(['pid', 'name', 'username', 'cmdline', 
+                                          'cpu_percent', 'memory_percent', 'status']):
+            try:
+                info = proc.info
+                proc_name = info['name']
+                cmdline = ' '.join(info['cmdline']) if info['cmdline'] else ''
+                
+                # Prepare search text
+                if case_sensitive:
+                    search_text = f"{proc_name} {cmdline}"
+                else:
+                    search_text = f"{proc_name} {cmdline}".lower()
+                
+                # Check if keyword matches
+                if search_keyword in search_text:
+                    matched_processes.append({
+                        "pid": info['pid'],
+                        "name": proc_name,
+                        "username": info['username'],
+                        "cmdline": cmdline[:200] if len(cmdline) > 200 else cmdline,  # Limit length
+                        "cpu_percent": round(info['cpu_percent'] or 0, 2),
+                        "memory_percent": round(info['memory_percent'] or 0, 2),
+                        "status": info['status'],
+                    })
+            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+                continue
+        
+        # Sort by CPU usage
+        matched_processes.sort(key=lambda x: x['cpu_percent'], reverse=True)
+        
+        return {
+            "success": True,
+            "keyword": keyword,
+            "case_sensitive": case_sensitive,
+            "matched_count": len(matched_processes),
+            "processes": matched_processes,
+            "tip": "Use the PID from this list to profile a specific process with profile_process tool"
+        }
+
     def get_description(self) -> str:
         return f"Collects process statistics including top {self.top_n} CPU and memory consumers."
+

@@ -18,12 +18,14 @@ from starlette.middleware.cors import CORSMiddleware
 from starlette.routing import Route
 from starlette.responses import JSONResponse
 
+from . import __version__
 from .collectors import (
     CPUCollector,
     MemoryCollector,
     DiskCollector,
     NetworkCollector,
     ProcessCollector,
+    PerfCollector,
 )
 
 
@@ -37,6 +39,7 @@ memory_collector = MemoryCollector()
 disk_collector = DiskCollector()
 network_collector = NetworkCollector()
 process_collector = ProcessCollector(top_n=10)
+perf_collector = PerfCollector()
 
 
 def create_mcp_server() -> Server:
@@ -144,6 +147,58 @@ def create_mcp_server() -> Server:
                     "required": [],
                 },
             ),
+            Tool(
+                name="search_processes",
+                description="Search for processes by keyword (name or command line). Returns matching process IDs and details.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "keyword": {
+                            "type": "string",
+                            "description": "Keyword to search for in process names or command lines",
+                        },
+                        "case_sensitive": {
+                            "type": "boolean",
+                            "description": "Whether to perform case-sensitive search (default: false)",
+                            "default": False,
+                        },
+                    },
+                    "required": ["keyword"],
+                },
+            ),
+            Tool(
+                name="profile_process",
+                description="Profile a specific process using perf to collect performance data for flame graph generation. Requires perf tool to be installed on the system.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "pid": {
+                            "type": "integer",
+                            "description": "Process ID to profile",
+                        },
+                        "duration": {
+                            "type": "integer",
+                            "description": "Duration in seconds to collect data (default: 10)",
+                            "default": 10,
+                            "minimum": 1,
+                            "maximum": 300,
+                        },
+                        "frequency": {
+                            "type": "integer",
+                            "description": "Sampling frequency in Hz (default: 99)",
+                            "default": 99,
+                            "minimum": 1,
+                            "maximum": 10000,
+                        },
+                        "event": {
+                            "type": "string",
+                            "description": "Perf event to record (default: cpu-clock). Other options: cycles, instructions, cache-misses",
+                            "default": "cpu-clock",
+                        },
+                    },
+                    "required": ["pid"],
+                },
+            ),
         ]
 
     def generate_performance_summary() -> dict[str, Any]:
@@ -242,6 +297,37 @@ def create_mcp_server() -> Server:
             elif name == "get_performance_summary":
                 result = generate_performance_summary()
             
+            elif name == "search_processes":
+                keyword = arguments.get("keyword", "")
+                case_sensitive = arguments.get("case_sensitive", False)
+                result = process_collector.search_processes(keyword, case_sensitive)
+            
+            elif name == "profile_process":
+                pid = arguments.get("pid")
+                if pid is None:
+                    return [TextContent(type="text", text="Error: 'pid' parameter is required")]
+                
+                duration = arguments.get("duration", 10)
+                frequency = arguments.get("frequency", 99)
+                event = arguments.get("event", "cpu-clock")
+                
+                # Validate parameters
+                if not isinstance(pid, int) or pid <= 0:
+                    return [TextContent(type="text", text=f"Error: Invalid PID: {pid}")]
+                
+                if not (1 <= duration <= 300):
+                    return [TextContent(type="text", text=f"Error: Duration must be between 1 and 300 seconds")]
+                
+                if not (1 <= frequency <= 10000):
+                    return [TextContent(type="text", text=f"Error: Frequency must be between 1 and 10000 Hz")]
+                
+                result = perf_collector.collect_process_profile(
+                    pid=pid,
+                    duration=duration,
+                    frequency=frequency,
+                    event=event
+                )
+            
             else:
                 return [TextContent(type="text", text=f"Unknown tool: {name}")]
 
@@ -290,20 +376,20 @@ def create_sse_app() -> Starlette:
             request.scope, request.receive, request._send
         )
 
-    async def health_check(request):
+    async def health_check(_request):
         """Health check endpoint."""
         return JSONResponse({
             "status": "ok",
             "service": "linux-profiler",
-            "version": "1.0.0",
+            "version": __version__,
             "transport": "sse",
         })
 
-    async def server_info(request):
+    async def server_info(_request):
         """Server info endpoint."""
         return JSONResponse({
             "name": "linux-profiler",
-            "version": "1.0.0",
+            "version": __version__,
             "transport": "sse",
             "endpoints": {
                 "sse": "/sse",
@@ -353,21 +439,21 @@ def create_streamable_http_app(stateless: bool = False) -> Starlette:
         async with session_manager.run():
             yield
 
-    async def health_check(request):
+    async def health_check(_request):
         """Health check endpoint."""
         return JSONResponse({
             "status": "ok",
             "service": "linux-profiler",
-            "version": "1.0.0",
+            "version": __version__,
             "transport": "streamable-http",
             "stateless": stateless,
         })
 
-    async def server_info(request):
+    async def server_info(_request):
         """Server info endpoint."""
         return JSONResponse({
             "name": "linux-profiler",
-            "version": "1.0.0",
+            "version": __version__,
             "transport": "streamable-http",
             "stateless": stateless,
             "endpoints": {
@@ -424,7 +510,7 @@ def create_combined_http_app(stateless: bool = False) -> Starlette:
     )
     
     @asynccontextmanager
-    async def lifespan(app: Starlette):
+    async def lifespan(_app: Starlette):
         """Application lifespan - manage session manager lifecycle."""
         async with session_manager.run():
             yield
@@ -448,20 +534,20 @@ def create_combined_http_app(stateless: bool = False) -> Starlette:
             request.scope, request.receive, request._send
         )
 
-    async def health_check(request):
+    async def health_check(_request):
         """Health check endpoint."""
         return JSONResponse({
             "status": "ok",
             "service": "linux-profiler",
-            "version": "1.0.0",
+            "version": __version__,
             "transports": ["sse", "streamable-http"],
         })
 
-    async def server_info(request):
+    async def server_info(_request):
         """Server info endpoint."""
         return JSONResponse({
             "name": "linux-profiler",
-            "version": "1.0.0",
+            "version": __version__,
             "transports": {
                 "sse": {
                     "endpoint": "/sse",

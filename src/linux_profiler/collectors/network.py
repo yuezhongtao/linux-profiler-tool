@@ -4,15 +4,7 @@ import psutil
 from typing import Any
 
 from .base import BaseCollector
-
-
-def bytes_to_human(bytes_val: int) -> str:
-    """Convert bytes to human-readable format."""
-    for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
-        if bytes_val < 1024:
-            return f"{bytes_val:.2f} {unit}"
-        bytes_val /= 1024
-    return f"{bytes_val:.2f} PB"
+from .utils import bytes_to_human
 
 
 class NetworkCollector(BaseCollector):

@@ -9,9 +9,11 @@
       }
     },
     "linux-profiler-streamable": {
+      "transportType": "streamable-http",
       "url": "http://localhost:22222/mcp"
     },
     "linux-profiler-sse": {
+      "transportType": "sse",
       "url": "http://localhost:22222/sse"
     }
   }
